@@ -53,6 +53,9 @@ trap(struct trapframe *tf)
       ticks++;
       wakeup(&ticks);
       release(&tickslock);
+			if (ticks % BOOST_FREQ == 0) {
+				boost_up();
+			}
     }
     lapiceoi();
     break;

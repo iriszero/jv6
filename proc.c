@@ -10,10 +10,14 @@
 struct {
   struct spinlock lock;
   struct proc proc[NPROC];
+	int global_pass, ss_pass, mlfq_pass;
+	int ss_tickets;
 } ptable;
 
 static struct proc *initproc;
 
+const int MLFQ_TICKS[NQLEV] = {5, 10, 20};
+const int stride1 = 1 << 16;
 int nextpid = 1;
 extern void forkret(void);
 extern void trapret(void);
@@ -168,13 +172,15 @@ fork(void)
   np->cwd = idup(proc->cwd);
 
   safestrcpy(np->name, proc->name, sizeof(proc->name));
-
+	np->mlfq_lev = 0;
+	np->mlfq_tick = 0;
+	np->stride_ticket = 0;
   pid = np->pid;
-
+	
   acquire(&ptable.lock);
-
+	
   np->state = RUNNABLE;
-
+	np->stride_pass = ptable.global_pass;
   release(&ptable.lock);
 
   return pid;
@@ -252,6 +258,8 @@ wait(void)
         p->name[0] = 0;
         p->killed = 0;
         p->state = UNUSED;
+				ptable.ss_tickets -= p->stride_ticket;
+				p->stride_ticket = 0;
         release(&ptable.lock);
         return pid;
       }
@@ -268,6 +276,54 @@ wait(void)
   }
 }
 
+// If the tick reaches to the maximum value in the level,
+// clear the tick and lower its level if possible.
+struct proc*
+mlfq_scheduler(void)
+{
+	struct proc *p;
+	int lev;
+	for (lev = 0; lev<NQLEV; lev++) {
+		for (p=ptable.proc; p<&ptable.proc[NPROC]; p++) {
+			if (p->state == RUNNABLE && p->mlfq_lev == lev && p->stride_ticket == 0) {
+				p->mlfq_tick++;
+				if (p->mlfq_tick >= MLFQ_TICKS[p->mlfq_tick]) {
+					p->mlfq_tick = 0;
+					if (p->mlfq_lev < NQLEV-1) {
+						p->mlfq_lev++;
+					}
+				}
+				ptable.mlfq_pass += stride1 / (100 - ptable.ss_tickets);
+				return p;
+			}
+		}
+	}
+	return 0;
+}
+
+// Stride Scheduler always increases its pass
+// even though it does not choose any for that time
+// to prevent the master scheduler from never trying with mlfq_scheduler.
+struct proc*
+stride_scheduler(void)
+{
+	struct proc *p, *res=0;
+	int min = 1 << 30;
+	for (p = ptable.proc; p<&ptable.proc[NPROC]; p++) {
+		if (p->state == RUNNABLE && p->stride_ticket > 0 && p->stride_pass < min) {
+			min = p->stride_pass;
+			res = p;
+		}
+	}
+	ptable.ss_pass += stride1 / ptable.ss_tickets;
+	if (res) {
+		ptable.global_pass += stride1 / ptable.ss_tickets;
+		res->stride_pass += stride1 / res->stride_ticket;
+		return res;
+	}
+	return 0;
+}
+	
 //PAGEBREAK: 42
 // Per-CPU process scheduler.
 // Each CPU calls scheduler() after setting itself up.
@@ -284,28 +340,35 @@ scheduler(void)
   for(;;){
     // Enable interrupts on this processor.
     sti();
-
+		p = 0;
     // Loop over process table looking for process to run.
     acquire(&ptable.lock);
-    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-      if(p->state != RUNNABLE)
-        continue;
+		if (ptable.ss_tickets > 0 && ptable.ss_pass < ptable.mlfq_pass) {
+			p=stride_scheduler();
+		}
+		else {
+			p=mlfq_scheduler();
+		}
 
-      // Switch to chosen process.  It is the process's job
-      // to release ptable.lock and then reacquire it
-      // before jumping back to us.
-      proc = p;
-      switchuvm(p);
-      p->state = RUNNING;
-      swtch(&cpu->scheduler, p->context);
-      switchkvm();
+		if (!p) {
+			release(&ptable.lock);
+			continue;
+		}
 
-      // Process is done running for now.
-      // It should have changed its p->state before coming back.
-      proc = 0;
-    }
+		
+    // Switch to chosen process.  It is the process's job
+    // to release ptable.lock and then reacquire it
+    // before jumping back to us.
+    proc = p;
+    switchuvm(p);
+    p->state = RUNNING;
+    swtch(&cpu->scheduler, p->context);
+    switchkvm();
+
+    // Process is done running for now.
+    // It should have changed its p->state before coming back.
+    proc = 0;
     release(&ptable.lock);
-
   }
 }
 
@@ -482,4 +545,40 @@ procdump(void)
     }
     cprintf("\n");
   }
+}
+
+int
+set_cpu_share(int ticket)
+{
+	int issued = 0;
+	acquire(&ptable.lock);
+	ptable.ss_tickets -= proc->stride_ticket;
+	proc->stride_ticket = 0;
+
+	if (ptable.ss_tickets + ticket > 100 - MLFQ_MIN_PERCENTAGE) {
+		issued = 100 - MLFQ_MIN_PERCENTAGE - ptable.ss_tickets;
+	}
+	else {
+		issued = ticket;
+	}
+	proc->stride_ticket = issued;
+	ptable.ss_tickets += issued;
+	release(&ptable.lock);
+	return issued;
+}
+
+void
+boost_up(void)
+{
+	struct proc *p;
+	acquire(&ptable.lock);
+	for (p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
+		if (p->stride_ticket == 0 &&
+				(p->state == RUNNING || p->state == RUNNING)) {
+			p->mlfq_lev = 0;
+			p->mlfq_tick = 0;
+		}
+	}
+
+	release(&ptable.lock);
 }

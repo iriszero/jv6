@@ -116,6 +116,8 @@ void            userinit(void);
 int             wait(void);
 void            wakeup(void*);
 void            yield(void);
+int 						set_cpu_share(int);
+void 						boost_up(void);
 
 // swtch.S
 void            swtch(struct context**, struct context*);
