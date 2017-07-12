@@ -102,6 +102,9 @@ int             piperead(struct pipe*, char*, int);
 int             pipewrite(struct pipe*, char*, int);
 
 //PAGEBREAK: 16
+// prac_syscall.c
+int             my_syscall(char*);
+
 // proc.c
 void            exit(void);
 int             fork(void);
@@ -116,8 +119,14 @@ void            userinit(void);
 int             wait(void);
 void            wakeup(void*);
 void            yield(void);
-int 						set_cpu_share(int);
-void 						boost_up(void);
+void						yield_by_interrupt(void);
+int							getlev(void);
+void						boost_up(void);
+int							set_cpu_share(int);
+int 						thread_create(thread_t *thread, void* (*start_routine)(void *), void *arg);
+void					 	thread_exit(void *retval);
+int							thread_join(thread_t thread, void **retval);
+void						inc_thread_num(int);
 
 // swtch.S
 void            swtch(struct context**, struct context*);
@@ -153,6 +162,7 @@ int             argstr(int, char**);
 int             fetchint(uint, int*);
 int             fetchstr(uint, char**);
 void            syscall(void);
+void            interrupt_128(void);
 
 // timer.c
 void            timerinit(void);

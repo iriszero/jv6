@@ -14,4 +14,6 @@ kernel
 kernelmemfs
 mkfs
 .gdbinit
-cscope*
+
+# CScope
+cscope.*

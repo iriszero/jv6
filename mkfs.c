@@ -101,7 +101,6 @@ main(int argc, char *argv[])
   sb.logstart = xint(2);
   sb.inodestart = xint(2+nlog);
   sb.bmapstart = xint(2+nlog+ninodeblocks);
-
   printf("nmeta %d (boot, super, log blocks %u inode blocks %u, bitmap blocks %u) blocks %d total %d\n",
          nmeta, nlog, ninodeblocks, nbitmap, nblocks, FSSIZE);
 
@@ -256,12 +255,13 @@ void
 iappend(uint inum, void *xp, int n)
 {
   char *p = (char*)xp;
-  uint fbn, off, n1;
+  uint fbn, off, n1, t;
   struct dinode din;
   char buf[BSIZE];
-  uint indirect[NINDIRECT];
+  uint indirect[NINDIRECT], indirect2[NINDIRECT];
   uint x;
-
+	uint addr;
+	//printf("iappend inum=%d, n=%d\n", inum,n );
   rinode(inum, &din);
   off = xint(din.size);
   // printf("append inum %d at off %d sz %d\n", inum, off, n);
@@ -273,7 +273,7 @@ iappend(uint inum, void *xp, int n)
         din.addrs[fbn] = xint(freeblock++);
       }
       x = xint(din.addrs[fbn]);
-    } else {
+    } else if(fbn < NDIRECT + NINDIRECT) {
       if(xint(din.addrs[NDIRECT]) == 0){
         din.addrs[NDIRECT] = xint(freeblock++);
       }
@@ -284,6 +284,24 @@ iappend(uint inum, void *xp, int n)
       }
       x = xint(indirect[fbn-NDIRECT]);
     }
+		else {
+			t = fbn - NDIRECT - NINDIRECT;
+			if (xint(din.addrs[NDIRECT+1]) == 0) {
+				din.addrs[NDIRECT+1] = xint(freeblock++);
+			}
+			rsect(xint(din.addrs[NDIRECT+1]), (char*)indirect);
+			if (indirect[t / NINDIRECT] == 0) {
+				indirect[t / NINDIRECT] = xint(freeblock++);
+				wsect(xint(din.addrs[NDIRECT+1]), (char*)indirect);
+			}
+			
+			rsect(indirect[t / NINDIRECT], indirect2);
+			if (xint(indirect2[t % NINDIRECT]) == 0) {
+				indirect2[t % NINDIRECT] = xint(freeblock++);
+				wsect(xint(indirect[t / NINDIRECT]), (char*)indirect2);
+			}
+			x = xint(indirect2[t % NINDIRECT]);
+		}
     n1 = min(n, (fbn + 1) * BSIZE - off);
     rsect(x, buf);
     bcopy(p, buf + off - (fbn * BSIZE), n1);

@@ -3,6 +3,7 @@
 #include "param.h"
 #include "memlayout.h"
 #include "mmu.h"
+#include "spinlock.h"
 #include "proc.h"
 #include "x86.h"
 #include "syscall.h"
@@ -17,7 +18,7 @@
 int
 fetchint(uint addr, int *ip)
 {
-  if(addr >= proc->sz || addr+4 > proc->sz)
+  if(addr >= proc->process->sz || addr+4 > proc->process->sz)
     return -1;
   *ip = *(int*)(addr);
   return 0;
@@ -31,10 +32,10 @@ fetchstr(uint addr, char **pp)
 {
   char *s, *ep;
 
-  if(addr >= proc->sz)
+  if(addr >= proc->process->sz)
     return -1;
   *pp = (char*)addr;
-  ep = (char*)proc->sz;
+  ep = (char*)proc->process->sz;
   for(s = *pp; s < ep; s++)
     if(*s == 0)
       return s - *pp;
@@ -58,7 +59,7 @@ argptr(int n, char **pp, int size)
 
   if(argint(n, &i) < 0)
     return -1;
-  if(size < 0 || (uint)i >= proc->sz || (uint)i+size > proc->sz)
+  if(size < 0 || (uint)i >= proc->process->sz || (uint)i+size > proc->process->sz)
     return -1;
   *pp = (char*)i;
   return 0;
@@ -85,15 +86,20 @@ extern int sys_exit(void);
 extern int sys_fork(void);
 extern int sys_fstat(void);
 extern int sys_getpid(void);
+extern int sys_getppid(void);
 extern int sys_kill(void);
 extern int sys_link(void);
 extern int sys_mkdir(void);
 extern int sys_mknod(void);
+extern int sys_my_syscall(void);
 extern int sys_open(void);
 extern int sys_pipe(void);
 extern int sys_read(void);
 extern int sys_sbrk(void);
 extern int sys_sleep(void);
+extern int sys_thread_create(void);
+extern int sys_thread_exit(void);
+extern int sys_thread_join(void);
 extern int sys_unlink(void);
 extern int sys_wait(void);
 extern int sys_write(void);
@@ -101,6 +107,9 @@ extern int sys_uptime(void);
 extern int sys_yield(void);
 extern int sys_getlev(void);
 extern int sys_set_cpu_share(void);
+extern int sys_thread_create(void);
+extern int sys_thread_exit(void);
+extern int sys_thread_join(void);
 
 static int (*syscalls[])(void) = {
 [SYS_fork]    sys_fork,
@@ -124,9 +133,14 @@ static int (*syscalls[])(void) = {
 [SYS_link]    sys_link,
 [SYS_mkdir]   sys_mkdir,
 [SYS_close]   sys_close,
-[SYS_yield]		sys_yield,
+[SYS_my_syscall]    sys_my_syscall,
+[SYS_getppid] sys_getppid,
+[SYS_yield]   sys_yield,
 [SYS_getlev]	sys_getlev,
-[SYS_set_cpu_share] sys_set_cpu_share,
+[SYS_set_cpu_share]	sys_set_cpu_share,
+[SYS_thread_create] sys_thread_create,
+[SYS_thread_exit]		sys_thread_exit,
+[SYS_thread_join]		sys_thread_join
 };
 
 void
@@ -142,4 +156,10 @@ syscall(void)
             proc->pid, proc->name, num);
     proc->tf->eax = -1;
   }
+}
+
+void
+interrupt_128(void) {
+  cprintf("user interrupt 128 called!\n");
+  exit();
 }

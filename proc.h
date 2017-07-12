@@ -47,6 +47,13 @@ struct context {
 };
 
 enum procstate { UNUSED, EMBRYO, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
+
+struct thread {
+	int allocated;
+	uint stack;
+	struct proc *proc;
+};
+
 // Per-process state
 struct proc {
   uint sz;                     // Size of process memory (bytes)
@@ -54,6 +61,7 @@ struct proc {
   char *kstack;                // Bottom of kernel stack for this process
   enum procstate state;        // Process state
   int pid;                     // Process ID
+	int tid;										 // Thread ID
   struct proc *parent;         // Parent process
   struct trapframe *tf;        // Trap frame for current syscall
   struct context *context;     // swtch() here to run process
@@ -62,10 +70,17 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
-	int mlfq_tick;							 // MLFQ elapsed tick
-	int mlfq_lev;								 // Level in MLFQ
-	int stride_ticket;					 // Stride ticket
-	int stride_pass;						 // The current pass of stride scheduler
+	int level;									 // Level in MLFQ
+	int mlfq_remain_tick;				 // remaining ticks in MLFQ
+	int stride_tickets;					 // total issued tickets in SS
+	int stride_current_pass;		 // current pass of process
+	int is_thread;
+	struct thread thread[NTHREAD];
+	struct proc *process;
+	int thread_idx;
+	int thread_num;
+	int scheduled;
+	int num_thread;							 // # of processes and threads
 };
 
 // Process memory is laid out contiguously, low addresses first:
@@ -74,5 +89,5 @@ struct proc {
 //   fixed-size stack
 //   expandable heap
 
-#define MLFQ_MIN_PERCENTAGE	20
-#define BOOST_FREQ	128
+#define BOOSTUP_PERIOD 		100
+#define MIN_MLFQ_PERCENTAGE 20

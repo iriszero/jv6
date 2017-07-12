@@ -26,7 +26,7 @@
 // processor defined exceptions or interrupt vectors.
 #define T_SYSCALL       64      // system call
 #define T_DEFAULT      500      // catchall
-
+#define T_MY_SYSCALL   128
 #define T_IRQ0          32      // IRQ 0 corresponds to int T_IRQ
 
 #define IRQ_TIMER        0

@@ -2,6 +2,7 @@
 #include "param.h"
 #include "memlayout.h"
 #include "mmu.h"
+#include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
 #include "x86.h"
@@ -85,6 +86,13 @@ exec(char *path, char **argv)
   if(copyout(pgdir, sp, ustack, (3+argc+1)*4) < 0)
     goto bad;
 
+	if ((sz = allocuvm(pgdir, sz, sz + NTHREAD * PGSIZE)) == 0)
+		goto bad;
+	for (i=0; i<NTHREAD; i++) {
+		proc->thread[i].allocated = 0;
+		proc->thread[i].stack = sz - NTHREAD * PGSIZE + i * PGSIZE;
+	}
+
   // Save program name for debugging.
   for(last=s=path; *s; s++)
     if(*s == '/')
@@ -92,11 +100,13 @@ exec(char *path, char **argv)
   safestrcpy(proc->name, last, sizeof(proc->name));
 
   // Commit to the user image.
-  oldpgdir = proc->pgdir;
-  proc->pgdir = pgdir;
-  proc->sz = sz;
+  oldpgdir = proc->process->pgdir;
+  proc->process->pgdir = pgdir;
+  proc->process->sz = sz;
   proc->tf->eip = elf.entry;  // main
   proc->tf->esp = sp;
+	proc->is_thread = 0;
+
   switchuvm(proc);
   freevm(oldpgdir);
   return 0;

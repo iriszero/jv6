@@ -14,8 +14,8 @@
 #include "param.h"
 #include "stat.h"
 #include "mmu.h"
-#include "proc.h"
 #include "spinlock.h"
+#include "proc.h"
 #include "sleeplock.h"
 #include "fs.h"
 #include "buf.h"
@@ -354,9 +354,9 @@ iunlockput(struct inode *ip)
 static uint
 bmap(struct inode *ip, uint bn)
 {
-  uint addr, *a;
+  uint addr, *a, *b;
   struct buf *bp;
-
+	//cprintf("bmap : bn=%d\n");
   if(bn < NDIRECT){
     if((addr = ip->addrs[bn]) == 0)
       ip->addrs[bn] = addr = balloc(ip->dev);
@@ -377,7 +377,30 @@ bmap(struct inode *ip, uint bn)
     brelse(bp);
     return addr;
   }
+	bn -= NINDIRECT;
 
+	if(bn < NINDIRECT * NINDIRECT) {
+		if ((addr = ip->addrs[NDIRECT+1]) == 0)
+			ip->addrs[NDIRECT+1] = addr = balloc(ip->dev);
+		bp = bread(ip->dev, addr);
+		a = (uint*)bp->data;
+		if((addr = a[bn/NINDIRECT]) == 0) {
+			a[bn/NINDIRECT] = addr = balloc(ip->dev);
+			log_write(bp);
+		}
+		brelse(bp);
+		bp = bread(ip->dev, addr);
+		b = (uint*)bp->data;
+		if ((addr=b[bn%NINDIRECT]) == 0) {
+			b[bn%NINDIRECT] = addr = balloc(ip->dev);
+			log_write(bp);
+		}
+		brelse(bp);
+		bp = bread(ip->dev, addr);
+		brelse(bp);
+		return addr;
+	}
+	
   panic("bmap: out of range");
 }
 
@@ -389,10 +412,10 @@ bmap(struct inode *ip, uint bn)
 static void
 itrunc(struct inode *ip)
 {
-  int i, j;
-  struct buf *bp;
-  uint *a;
-
+  int i, j, k;
+  struct buf *bp, *bp2;
+  uint *a, *b;
+	//cprintf("itrunc!\n");
   for(i = 0; i < NDIRECT; i++){
     if(ip->addrs[i]){
       bfree(ip->dev, ip->addrs[i]);
@@ -411,6 +434,28 @@ itrunc(struct inode *ip)
     bfree(ip->dev, ip->addrs[NDIRECT]);
     ip->addrs[NDIRECT] = 0;
   }
+
+	if(ip->addrs[NDIRECT+1]){
+		bp = bread(ip->dev, ip->addrs[NDIRECT+1]);
+		a = (uint*)bp->data;
+		for (j=0; j<NINDIRECT; j++) {
+			if (a[j] == 0)
+				continue;
+			
+			bp2 = bread(ip->dev, a[j]);
+			b = (uint*)bp2->data;
+			for (k=0; k<NINDIRECT; k++) {
+				if (b[k])
+					bfree(ip->dev, b[k]);
+			}
+			brelse(bp2);
+			bfree(ip->dev, a[j]);
+			a[j] = 0;
+		}
+		brelse(bp);
+		bfree(ip->dev, ip->addrs[NDIRECT+1]);
+		ip->addrs[NDIRECT+1] = 0;
+	}
 
   ip->size = 0;
   iupdate(ip);
@@ -434,7 +479,7 @@ readi(struct inode *ip, char *dst, uint off, uint n)
 {
   uint tot, m;
   struct buf *bp;
-
+	//cprintf("readi off = %d\n", off);
   if(ip->type == T_DEV){
     if(ip->major < 0 || ip->major >= NDEV || !devsw[ip->major].read)
       return -1;
@@ -469,7 +514,7 @@ writei(struct inode *ip, char *src, uint off, uint n)
 {
   uint tot, m;
   struct buf *bp;
-
+	//cprintf("writei off = %d\n", off);
   if(ip->type == T_DEV){
     if(ip->major < 0 || ip->major >= NDEV || !devsw[ip->major].write)
       return -1;

@@ -10,5 +10,6 @@
 #define MAXOPBLOCKS  10  // max # of blocks any FS op writes
 #define LOGSIZE      (MAXOPBLOCKS*3)  // max data blocks in on-disk log
 #define NBUF         (MAXOPBLOCKS*3)  // size of disk block cache
-#define FSSIZE       1000  // size of file system in blocks
-#define NQLEV					3 	// the number of level in MLFQ
+#define FSSIZE       2000  // size of file system in blocks
+#define NLEVEL				3
+#define NTHREAD			 16

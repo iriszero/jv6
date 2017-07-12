@@ -3,10 +3,10 @@
 #include "param.h"
 #include "memlayout.h"
 #include "mmu.h"
+#include "spinlock.h"
 #include "proc.h"
 #include "x86.h"
 #include "traps.h"
-#include "spinlock.h"
 
 // Interrupt descriptor table (shared by all CPUs).
 struct gatedesc idt[256];
@@ -22,6 +22,7 @@ tvinit(void)
   for(i = 0; i < 256; i++)
     SETGATE(idt[i], 0, SEG_KCODE<<3, vectors[i], 0);
   SETGATE(idt[T_SYSCALL], 1, SEG_KCODE<<3, vectors[T_SYSCALL], DPL_USER);
+  SETGATE(idt[T_MY_SYSCALL], 1, SEG_KCODE<<3, vectors[T_MY_SYSCALL], DPL_USER);
 
   initlock(&tickslock, "time");
 }
@@ -37,11 +38,20 @@ void
 trap(struct trapframe *tf)
 {
   if(tf->trapno == T_SYSCALL){
-    if(proc->killed)
+    if(proc->process->killed)
       exit();
     proc->tf = tf;
     syscall();
-    if(proc->killed)
+    if(proc->process->killed)
+      exit();
+    return;
+  }
+  else if(tf->trapno == T_MY_SYSCALL){
+    if(proc->process->killed)
+      exit();
+    proc->tf = tf;
+    interrupt_128();
+    if(proc->process->killed)
       exit();
     return;
   }
@@ -53,9 +63,9 @@ trap(struct trapframe *tf)
       ticks++;
       wakeup(&ticks);
       release(&tickslock);
-			if (ticks % BOOST_FREQ == 0) {
-				boost_up();
-			}
+			//if (ticks % BOOSTUP_PERIOD == 0) {
+			//	boost_up();
+			//}
     }
     lapiceoi();
     break;
@@ -83,16 +93,19 @@ trap(struct trapframe *tf)
 
   //PAGEBREAK: 13
   default:
-    if(proc == 0 || (tf->cs&3) == 0){
+		//if (proc->process->killed || proc->kstack == 0 || proc->state == UNUSED)
+		//	return;
+    if((proc == 0 || (tf->cs&3) == 0)){
       // In kernel, it must be our mistake.
-      cprintf("unexpected trap %d from cpu %d eip %x (cr2=0x%x)\n",
-              tf->trapno, cpunum(), tf->eip, rcr2());
+      cprintf("unexpected trap %d from cpu %d eip %x pid %d tid %d (cr2=0x%x) kstack=%x\n state %d",
+              tf->trapno, cpunum(), tf->eip, proc->pid, proc->tid, rcr2(), proc->kstack, proc->state);
       panic("trap");
     }
     // In user space, assume process misbehaved.
-    cprintf("pid %d %s: trap %d err %d on cpu %d "
+    cprintf("pid %d tid %d %s: trap %d err %d on cpu %d "
             "eip 0x%x addr 0x%x--kill proc\n",
-            proc->pid, proc->name, tf->trapno, tf->err, cpunum(), tf->eip,
+            proc->pid, proc->tid, 
+						proc->name, tf->trapno, tf->err, cpunum(), tf->eip,
             rcr2());
     proc->killed = 1;
   }
@@ -100,15 +113,15 @@ trap(struct trapframe *tf)
   // Force process exit if it has been killed and is in user space.
   // (If it is still executing in the kernel, let it keep running
   // until it gets to the regular system call return.)
-  if(proc && proc->killed && (tf->cs&3) == DPL_USER)
+  if(proc && proc->process->killed && (tf->cs&3) == DPL_USER)
     exit();
 
   // Force process to give up CPU on clock tick.
   // If interrupts were on while locks held, would need to check nlock.
   if(proc && proc->state == RUNNING && tf->trapno == T_IRQ0+IRQ_TIMER)
-    yield();
+		yield();
 
   // Check if the process has been killed since we yielded
-  if(proc && proc->killed && (tf->cs&3) == DPL_USER)
+  if(proc && proc->process->killed && (tf->cs&3) == DPL_USER)
     exit();
 }

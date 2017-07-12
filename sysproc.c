@@ -5,6 +5,7 @@
 #include "param.h"
 #include "memlayout.h"
 #include "mmu.h"
+#include "spinlock.h"
 #include "proc.h"
 
 int
@@ -43,14 +44,20 @@ sys_getpid(void)
 }
 
 int
+sys_getppid(void)
+{
+  return proc->parent->pid;
+}
+
+int
 sys_sbrk(void)
 {
   int addr;
   int n;
-
+	
   if(argint(0, &n) < 0)
     return -1;
-  addr = proc->sz;
+  addr = proc->process->sz;
   if(growproc(n) < 0)
     return -1;
   return addr;
@@ -64,16 +71,18 @@ sys_sleep(void)
 
   if(argint(0, &n) < 0)
     return -1;
-  acquire(&tickslock);
+	
+	acquire(&tickslock);
   ticks0 = ticks;
   while(ticks - ticks0 < n){
-    if(proc->killed){
+    if(proc->process->killed){
       release(&tickslock);
       return -1;
     }
     sleep(&ticks, &tickslock);
   }
   release(&tickslock);
+
   return 0;
 }
 
@@ -93,22 +102,61 @@ sys_uptime(void)
 int
 sys_yield(void)
 {
-	yield();
-	return 0;
+  yield();
+  return 0;
 }
 
 int
 sys_getlev(void)
 {
-	return proc->mlfq_lev;
+	return proc->level;
 }
 
 int
 sys_set_cpu_share(void)
 {
-	int n;
-	if (argint(0, &n) < 0)
+	int ticket_amount;
+	if (argint(0, &ticket_amount)<0)
 		return -1;
-	return set_cpu_share(n);
+	return set_cpu_share(ticket_amount);
 }
-	
+
+int
+sys_thread_create(void)
+{
+	thread_t *thread;
+	void *(*start_routine)(void*);
+	void *arg;
+
+	if (argptr(0, (void*)&thread, sizeof(thread))
+			|| argptr(1, (void*)&start_routine,sizeof(start_routine))
+			|| argptr(2, (void*)&arg, sizeof(arg)))
+		return -1;
+
+	return thread_create(thread, start_routine, arg);
+}
+
+int
+sys_thread_exit(void)
+{
+	void *retval;
+	if (argptr(0, (void*)&retval, sizeof(retval)))
+			return -1;
+	thread_exit(retval);
+
+	// Never return
+	panic("thread exit error");
+	return 0;
+}
+
+int
+sys_thread_join(void)
+{
+	thread_t thread;
+	void **retval;
+
+	if (argint(0, &thread) || argptr(1, (void*)&retval, sizeof(retval)))
+		return -1;
+
+	return thread_join(thread, retval);
+}
