@@ -2,8 +2,37 @@
 This is the advanced version of xv6.  
 We support wait-free and fair scheduling system with multi-threading and larger file system than the original xv6.
 
+## Dependencies
+```
+sudo apt-get install qemu
+```
 
-# MLFQ & Scheduling
+## How to Compile
+In *jv6* directory, 
+```
+make clean && make qemu
+```
+or in no graphic environment,
+
+```
+make clean && make qemu-nox
+```
+
+## How to Test
+We provide our test program for newly developed features.
+### MLFQ & Stride Scheduler
+`test_master`, which has a dependency on `test_mlfq`, `test_stride`, `test_yield`.
+
+### LWP
+`threadtest` and `threadtest2`.
+
+### File System
+`hugefiletest`.
+
+
+
+# MLFQ & Stride Scheduler
+
 ## Stride Scheduler
 The notion, "stride", is a beautiful way to overcome inaccuracy of lottery ticketing.
 It picks up the process who has the lowest pass so far and advances the pass by stride. I use a linear method for this popping operation, although it can be popped from in priority queue in *O(1)* and rearranged in *O(lg N)*, because the number of processes (NPROC) is not so large and it might be slower in terms of assembly execution (memory caching or accessing).
