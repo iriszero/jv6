@@ -1,3 +1,8 @@
+# jv6
+This is the advanced version of xv6.  
+We support wait-free and fair scheduling system with multi-threading and larger file system than the original xv6.
+
+
 # MLFQ & Scheduling
 ## Stride Scheduler
 The notion, "stride", is a beautiful way to overcome inaccuracy of lottery ticketing.
